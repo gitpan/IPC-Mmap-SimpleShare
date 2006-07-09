@@ -7,9 +7,10 @@ use Data::Dumper;
 use IPC::Mmap;
 use Storable qw(freeze thaw);
 
+use base qw(Exporter);
 
 BEGIN {
-	our $VERSION     = 0.01;
+	our $VERSION     = 0.02;
 }
 
 my $DEBUG = 0;
@@ -137,7 +138,7 @@ Surely there are quite a few. If you see them, report them to the proper authori
 
 =head1 AUTHOR
 
-IPC::Mmap::SimpleShare was written by Athanasios Douitsis  F<E<lt>aduitsis@netmode.ntua.grE<gt>>
+IPC::Mmap::SimpleShare was written by Athanasios Douitsis  F<E<lt>aduitsis@cpan.orgE<gt>>
 
 =head1 COPYRIGHT
 
