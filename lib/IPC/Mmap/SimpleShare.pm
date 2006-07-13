@@ -10,50 +10,50 @@ use Storable qw(freeze thaw);
 use base qw(Exporter);
 
 BEGIN {
-	our $VERSION     = 0.02;
+	our $VERSION     = 0.03;
 }
 
 my $DEBUG = 0;
 
 sub new {
-	my $self =  shift(@_) || croak "Error!..I do not even know who I am!..";
+	my $self =  shift(@_) or croak "Error!..I do not even know who I am!..";
 	my $class = ref($self) || $self;
-	my $size = shift(@_) || croak "Incorrect call to new";
+	my $size = shift(@_) or croak "Incorrect call to new";
 	open(my $FILE,"<","/dev/zero") || die $!;
 	my $mmap = create_mmap($size);
 	return bless { mmap => $mmap , size => $size },$class;
 }
 
 sub create_mmap {
-	my $size = shift(@_) || die "Internal error!..Size was not passed to create_mmap";
+	my $size = shift(@_) or die "Internal error!..Size was not passed to create_mmap";
 	open(my $FILE,"<","/dev/zero") || croak $!;
-	my $mmap = IPC::Mmap->new($FILE, $size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS) || croak $!;
+	my $mmap = IPC::Mmap->new($FILE, $size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS) or croak $!;
 	return $mmap;
 }
 
 sub set_mmap {
-	my $self = shift(@_) || croak "Error...set_mmap is a method call";
-	my $mmap = shift(@_) || croak "Error...incorrect call to set_mmap...expected an argument";
+	my $self = shift(@_) or croak "Error...set_mmap is a method call";
+	my $mmap = shift(@_) or croak "Error...incorrect call to set_mmap...expected an argument";
 	$self->{mmap} = $mmap;
 }
 	
 sub get_mmap {
-	my $self = shift(@_) || croak "Error...get_mmap is a method call";
+	my $self = shift(@_) or croak "Error...get_mmap is a method call";
 	return $self->{mmap};
 }	
 
 sub get_size {
-	my $self = shift(@_) || croak "Error...get_size is a method call";
+	my $self = shift(@_) or croak "Error...get_size is a method call";
 	return $self->{size};
 }
 
 sub set {
 	my $self = shift(@_);
-	my $var =  shift(@_) || croak "Error...You passed no argument or undef to set method";
+	my $var =  shift(@_) or croak "Error...You passed no argument or undef to set method";
 
 	my $var_ref = \$var; #saying $var=\$var would create a circular reference, caution!!
 
-	my $serialized = freeze($var_ref) || croak "Internal error...freeze failed...";
+	my $serialized = freeze($var_ref) or croak "Internal error...freeze failed...";
 
 	#check that the structure fits the mmaped area...
 	croak "Error...you cannot store a structure that is bigger than the size you have allocated in new. Please go back and try an allocation size of at least ".length($serialized)."\n" if (length($serialized) > $self->get_size); 
@@ -66,6 +66,7 @@ sub set {
 	$mmap->unlock() || croak "Internal error...unlock failed";
 }
 
+
 sub get {
 	my $self = shift(@_);
 	my $mmap = $self->get_mmap();
@@ -74,8 +75,38 @@ sub get {
 	$mmap->lock() || croak "Internal error...lock failed";
 	$mmap->read($unserialized,0,$size) ||  croak "Internal error...read failed";
 	$mmap->unlock() || croak "Internal error...unlock failed";
-	my $var_ref = thaw($unserialized) || croak "Error...Unfreezing returned an undefined value...";
+	my $var_ref = thaw($unserialized) or croak "Error...Unfreezing returned an undefined value...";
 	return ${$var_ref};
+}
+
+sub lock {
+	my $self = shift(@_) or croak "I could not shift the reference to my self";
+	my $mmap = $self->get_mmap() or croak "Failed to retrieve mmap object";
+	$mmap->lock() || croak "Internal error...lock failed";
+	$self->{locked} = 1;
+}
+
+
+sub unlock {
+	my $self = shift(@_) or croak "I could not shift the reference to my self";
+	my $mmap = $self->get_mmap() or croak "Failed to retrieve mmap object";
+	$mmap->unlock() || croak "Internal error...lock failed";
+	$self->{locked} = 0;
+}
+
+sub is_locked {
+	my $self = shift(@_) or croak "I could not shift the reference to my self";
+	return 1 if ($self->{locked} == 1);
+	return;
+}
+
+sub DESTROY {
+	my $self = shift(@_) or croak "I could not shift the reference to my self";
+	my $mmap = $self->get_mmap() or croak "Failed to retrieve mmap object";
+	if ($self->is_locked) { 
+		$mmap->unlock() || croak "Internal error...unlock failed";
+	}
+	return;
 }
 
 1;
@@ -116,6 +147,27 @@ This module uses the IPC::Mmap module internally to carry out its mmap tasks. Wh
 
 There are many excellent modules on CPAN which will happily handle all the details of interprocess communication even for complex cases. Some of these modules use shared memory and others use mmap. I needed something that uses b<anonymous> mmap and has a very simple way of operation. For many simple tasks, you may find it useful. For more complex jobs, you may want to take a look at other modules.
 
+=head1 METHODS
+
+=over 8
+
+=item new(SIZE)
+
+Just pick a size for the storage area and initialize the object. Remember that any variable or structure you are going to share must be able to fit in the size you specified. 
+
+=item set(VAR)
+
+This method will store VAR inside the mmaped area. VAR can be a reference to any structure or a simple scalar. 
+
+=item get()
+
+This method will retrieve the stored structure or scalar from the mmaped area and return it. 
+
+=item lock(),unlock()
+
+In case you want to explicitly lock or unlock the structure, you can use these methods.
+
+
 =head1 WARNING
 
 If the module fails during any of its tasks, it will try to croak. 
@@ -135,6 +187,10 @@ You may find these excellent modules useful: B<IPC::SharedCache>, B<IPC::ShareLi
 =head1 BUGS
 
 Surely there are quite a few. If you see them, report them to the proper authorities!..
+
+=head1 FUTURE WORK
+
+Perhaps IPC::Mmap::SimpleShare could conveniently subclass IPC::Mmap instead of being standalone. 
 
 =head1 AUTHOR
 
